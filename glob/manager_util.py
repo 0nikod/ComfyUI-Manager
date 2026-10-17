@@ -499,12 +499,13 @@ torch_torchvision_torchaudio_version_map = {
 }
 
 
-def torch_rollback(prev):
+def torch_rollback(prev, include_torchaudio=True):
+    optional_packages = ['torchaudio'] if include_torchaudio else []
     spec = prev.split('+')
     if len(spec) > 1:
         platform = spec[1]
     else:
-        cmd = make_pip_cmd(['install', '--force', 'torch', 'torchvision', 'torchaudio'])
+        cmd = make_pip_cmd(['install', '--force', 'torch', 'torchvision'] + optional_packages)
         subprocess.check_output(cmd, universal_newlines=True)
         logging.error(cmd)
         return
@@ -514,12 +515,13 @@ def torch_rollback(prev):
     torch_torchvision_torchaudio_ver = torch_torchvision_torchaudio_version_map.get(torch_ver)
 
     if torch_torchvision_torchaudio_ver is None:
-        cmd = make_pip_cmd(['install', '--pre', 'torch', 'torchvision', 'torchaudio',
+        cmd = make_pip_cmd(['install', '--pre', 'torch', 'torchvision'] + optional_packages + [
                             '--index-url', f"https://download.pytorch.org/whl/nightly/{platform}"])
         logging.info("[ComfyUI-Manager] restore PyTorch to nightly version")
     else:
         torchvision_ver, torchaudio_ver = torch_torchvision_torchaudio_ver
-        cmd = make_pip_cmd(['install', f'torch=={torch_ver}', f'torchvision=={torchvision_ver}', f"torchaudio=={torchaudio_ver}",
+        optional_packages = [f'torchaudio=={torchaudio_ver}'] if include_torchaudio else []
+        cmd = make_pip_cmd(['install', f'torch=={torch_ver}', f'torchvision=={torchvision_ver}'] + optional_packages + [
                             '--index-url', f"https://download.pytorch.org/whl/{platform}"])
         logging.info(f"[ComfyUI-Manager] restore PyTorch to {torch_ver}+{platform}")
 
@@ -548,12 +550,13 @@ class PIPFixer:
 
         # fix torch - reinstall torch packages if version is changed
         try:
-            if 'torch' not in self.prev_pip_versions or 'torchvision' not in self.prev_pip_versions or 'torchaudio' not in self.prev_pip_versions:
+            if 'torch' not in self.prev_pip_versions or 'torchvision' not in self.prev_pip_versions:
                 logging.error("[ComfyUI-Manager] PyTorch is not installed")
-            elif self.prev_pip_versions['torch'] != new_pip_versions['torch'] \
-                or self.prev_pip_versions['torchvision'] != new_pip_versions['torchvision'] \
-                or self.prev_pip_versions['torchaudio'] != new_pip_versions['torchaudio']:
-                    torch_rollback(self.prev_pip_versions['torch'])
+            elif self.prev_pip_versions['torch'] != new_pip_versions.get('torch') \
+                or self.prev_pip_versions['torchvision'] != new_pip_versions.get('torchvision'):
+                # torchaudio is optional; audio-only changes must not reinstall PyTorch.
+                torch_rollback(self.prev_pip_versions['torch'],
+                               include_torchaudio='torchaudio' in self.prev_pip_versions)
         except Exception as e:
             logging.error("[ComfyUI-Manager] Failed to restore PyTorch")
             logging.error(e)
